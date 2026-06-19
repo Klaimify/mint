@@ -510,3 +510,104 @@ def search_for_transfer_transaction(transaction_id: str | int):
 
     return None
 
+
+@frappe.whitelist(methods=["GET"])
+def get_invoice_filter_fields():
+    """Return the invoice filter field configuration from Mint Settings."""
+    settings = frappe.get_single("Mint Settings")
+    return [
+        {
+            "label": row.label,
+            "fieldname": row.fieldname,
+            "filter_level": row.filter_level,
+            "document_type": row.document_type,
+            "fieldtype": row.fieldtype,
+            "options": row.options or "",
+        }
+        for row in (settings.invoice_filter_fields or [])
+    ]
+
+
+@frappe.whitelist(methods=["GET"])
+def get_outstanding_invoices_with_filters(
+    company: str,
+    posting_date: str,
+    party_type: str,
+    party: str,
+    party_account: str,
+    invoice_filters: str = None,
+):
+    """
+    Wrap ERPNext's get_outstanding_reference_documents and apply custom field
+    filters configured in Mint Settings.
+
+    invoice_filters: JSON-encoded dict mapping fieldname → value.
+    """
+    from erpnext.accounts.doctype.payment_entry.payment_entry import (
+        get_outstanding_reference_documents,
+    )
+
+    args = frappe._dict(
+        company=company,
+        posting_date=posting_date,
+        party_type=party_type,
+        party=party,
+        party_account=party_account,
+        get_outstanding_invoices=True,
+        allocate_payment_amount=1,
+    )
+
+    outstanding = get_outstanding_reference_documents(args) or []
+
+    # Parse active filters
+    if invoice_filters:
+        filters = json.loads(invoice_filters) if isinstance(invoice_filters, str) else invoice_filters
+        filters = {k: v for k, v in filters.items() if v is not None and str(v).strip() != ""}
+    else:
+        filters = {}
+
+    if not filters:
+        return outstanding
+
+    # Build a lookup of configured filter fields → their level
+    settings = frappe.get_single("Mint Settings")
+    field_configs = {
+        row.fieldname: row.filter_level
+        for row in (settings.invoice_filter_fields or [])
+    }
+
+    invoice_level = {k: v for k, v in filters.items() if field_configs.get(k) == "Invoice"}
+    item_level = {k: v for k, v in filters.items() if field_configs.get(k) == "Item"}
+
+    if not invoice_level and not item_level:
+        return outstanding
+
+    result = []
+    for doc in outstanding:
+        voucher_type = doc.get("voucher_type", "")
+        voucher_no = doc.get("voucher_no", "")
+
+        # Non-invoice vouchers (orders, journal entries) pass through
+        if voucher_type not in ("Sales Invoice", "Purchase Invoice"):
+            result.append(doc)
+            continue
+
+        # --- Invoice-header-level filters ---
+        if invoice_level:
+            inv_data = frappe.db.get_value(
+                voucher_type, voucher_no, list(invoice_level.keys()), as_dict=True
+            )
+            if not inv_data:
+                continue
+            if not all(str(inv_data.get(f, "") or "") == str(v) for f, v in invoice_level.items()):
+                continue
+
+        # --- Item-level filters ---
+        if item_level:
+            item_filters = {"parent": voucher_no, **item_level}
+            if not frappe.db.exists(f"{voucher_type} Item", item_filters):
+                continue
+
+        result.append(doc)
+
+    return result
