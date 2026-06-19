@@ -35,6 +35,8 @@ import { Label } from "@/components/ui/label"
 import { FileDropzone } from "@/components/ui/file-dropzone"
 import { BankTransaction } from "@/types/Accounts/BankTransaction"
 import FileUploadBanner from "@/components/common/FileUploadBanner"
+import { Input } from "@/components/ui/input"
+import { useDebounceValue } from "usehooks-ts"
 
 const RecordPaymentModal = () => {
 
@@ -938,31 +940,55 @@ interface OutstandingInvoice {
     account?: string,
     allocated_amount?: number,
 }
+interface InvoiceFilterField {
+    label: string
+    fieldname: string
+    filter_level: "Invoice" | "Item"
+    document_type: "Both" | "Sales Invoice" | "Purchase Invoice"
+    fieldtype: "Data" | "Link" | "Select" | "Date" | "Int" | "Float" | "Check"
+    options: string
+}
+
 const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
 
     const { getValues, setValue } = useFormContext<PaymentEntry>()
 
     const { allocatePartyAmount } = usePaymentEntryCalculations()
 
+    // Load configurable filter fields from Mint Settings
+    const { data: filterFieldsData } = useFrappeGetCall<{ message: InvoiceFilterField[] }>(
+        'mint.apis.bank_reconciliation.get_invoice_filter_fields', {}
+    )
+    const filterFields = filterFieldsData?.message ?? []
+
+    // Pending filter values (immediate input state)
+    const [pendingFilters, setPendingFilters] = useState<Record<string, string>>({})
+
+    // Debounced filters sent to the API (300 ms delay for text inputs)
+    const [debouncedFilters] = useDebounceValue(pendingFilters, 300)
+
+    const activeFilterJson = useMemo(
+        () => JSON.stringify(debouncedFilters),
+        [debouncedFilters]
+    )
+
+    const partyAccount = getValues('payment_type') === 'Pay' ? getValues('paid_to') : getValues('paid_from')
+
     const { data, isLoading, error } = useFrappeGetCall<{
         message: OutstandingInvoice[],
         _server_messages?: string
-    }>('erpnext.accounts.doctype.payment_entry.payment_entry.get_outstanding_reference_documents', {
-        args: {
-            company: getValues('company'),
-            posting_date: getValues('posting_date'),
-            party_type: getValues('party_type'),
-            party: getValues('party'),
-            party_account: getValues('payment_type') === 'Pay' ? getValues('paid_to') : getValues('paid_from'),
-            get_outstanding_invoices: true,
-            allocate_payment_amount: 1
-        }
+    }>('mint.apis.bank_reconciliation.get_outstanding_invoices_with_filters', {
+        company: getValues('company'),
+        posting_date: getValues('posting_date'),
+        party_type: getValues('party_type'),
+        party: getValues('party'),
+        party_account: partyAccount,
+        invoice_filters: activeFilterJson,
     })
 
     const message = useMemo(() => {
         if (data && data._server_messages) {
             const message = JSON.parse(JSON.parse(data._server_messages)[0])
-
             return message.message
         }
         return ''
@@ -977,6 +1003,19 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
             setSelectedInvoices([...selectedInvoices, row])
         }
     }
+
+    const setFilterValue = (fieldname: string, value: string) => {
+        setPendingFilters(prev => ({ ...prev, [fieldname]: value }))
+        // Clear selected invoices when filters change to avoid stale selection
+        setSelectedInvoices([])
+    }
+
+    const clearAllFilters = () => {
+        setPendingFilters({})
+        setSelectedInvoices([])
+    }
+
+    const hasActiveFilters = Object.values(pendingFilters).some(v => v !== "")
 
     const { call: allocateAmountToReferences, loading: allocateAmountToReferencesLoading, error: allocateAmountToReferencesError } = useFrappePostCall('run_doc_method')
 
@@ -1021,10 +1060,43 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
             onClose()
         })
     }
+
     return <div className="flex flex-col gap-4">
+
+        {/* Dynamic filter panel — only shown when filters are configured in Mint Settings */}
+        {filterFields.length > 0 && (
+            <div className="rounded-md border p-3 bg-muted/30">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-foreground">Filters</span>
+                    {hasActiveFilters && (
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={clearAllFilters}>
+                            Clear all
+                        </Button>
+                    )}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">
+                    {filterFields.map((field) => (
+                        <div key={field.fieldname} className="flex flex-col gap-1">
+                            <Label className="text-xs text-muted-foreground">
+                                {field.label}
+                                {field.filter_level === "Item" && (
+                                    <span className="ml-1 text-[10px] bg-muted rounded px-1">item</span>
+                                )}
+                            </Label>
+                            <InvoiceFilterInput
+                                field={field}
+                                value={pendingFilters[field.fieldname] ?? ""}
+                                onChange={(v) => setFilterValue(field.fieldname, v)}
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+
         {isLoading ? <TableLoader columns={6} /> : null}
         {error && <ErrorBanner error={error} />}
-        {error && <ErrorBanner error={allocateAmountToReferencesError} />}
+        {allocateAmountToReferencesError && <ErrorBanner error={allocateAmountToReferencesError} />}
         {message ? <MissingFiltersBanner text={<MarkdownRenderer content={message} />} /> : null}
 
         {data?.message && data?.message?.length > 0 ? <Table>
@@ -1039,24 +1111,12 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
                             }
                         }} />
                     </TableHead>
-                    <TableHead>
-                        Type
-                    </TableHead>
-                    <TableHead>
-                        Name
-                    </TableHead>
-                    <TableHead>
-                        Invoice No
-                    </TableHead>
-                    <TableHead>
-                        Due Date
-                    </TableHead>
-                    <TableHead className="text-right">
-                        Grand Total
-                    </TableHead>
-                    <TableHead className="text-right">
-                        Outstanding
-                    </TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Invoice No</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead className="text-right">Grand Total</TableHead>
+                    <TableHead className="text-right">Outstanding</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -1065,7 +1125,6 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
                         key={ref.voucher_no}
                         onClick={(e) => {
                             const target = e.target as HTMLElement
-                            // Do not select the checkbox if the user clicks on the checkbox or the link
                             if (target.tagName !== 'INPUT' && !target.className.includes('chakra-checkbox') && !target.className.includes('chakra-link')) {
                                 onSelectRow(ref)
                             }
@@ -1082,31 +1141,28 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
                                 }}
                             />
                         </TableCell>
-                        <TableCell>
-                            {ref.voucher_type}
-                        </TableCell>
+                        <TableCell>{ref.voucher_type}</TableCell>
                         <TableCell>
                             <a
                                 target="_blank"
                                 className="underline underline-offset-2"
                                 href={`/app/${slug(ref.voucher_type)}/${ref.voucher_no}`}>{ref.voucher_no}</a>
                         </TableCell>
-                        <TableCell>
-                            {ref.bill_no ?? "-"}
-                        </TableCell>
-                        <TableCell>
-                            {formatDate(ref.due_date)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                            {formatCurrency(ref.invoice_amount)}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                            {formatCurrency(ref.outstanding_amount)}
-                        </TableCell>
+                        <TableCell>{ref.bill_no ?? "-"}</TableCell>
+                        <TableCell>{formatDate(ref.due_date)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(ref.invoice_amount)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(ref.outstanding_amount)}</TableCell>
                     </TableRow>
                 ))}
             </TableBody>
         </Table> : null}
+
+        {!isLoading && data?.message?.length === 0 && (
+            <p className="text-center text-sm text-muted-foreground py-4">
+                No outstanding invoices found{hasActiveFilters ? " matching the active filters" : ""}.
+            </p>
+        )}
+
         <div className="flex justify-between items-center">
             <div className="flex gap-2">
                 <span className="text-muted-foreground">Invoices: <span className="text-foreground font-mono font-medium">{selectedInvoices.length}</span></span> /
@@ -1116,11 +1172,83 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
                 <DialogClose asChild>
                     <Button variant='ghost' disabled={allocateAmountToReferencesLoading}>Cancel</Button>
                 </DialogClose>
-                <Button onClick={onSelect} disabled={allocateAmountToReferencesLoading}>Select</Button>
+                <Button onClick={onSelect} disabled={allocateAmountToReferencesLoading || selectedInvoices.length === 0}>Select</Button>
             </DialogFooter>
         </div>
 
     </div>
+}
+
+/** Renders the right input control depending on the field type. */
+const InvoiceFilterInput = ({
+    field,
+    value,
+    onChange,
+}: {
+    field: InvoiceFilterField
+    value: string
+    onChange: (v: string) => void
+}) => {
+    if (field.fieldtype === "Select") {
+        const options = (field.options ?? "").split("\n").filter(Boolean)
+        return (
+            <select
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] transition-[color,box-shadow]"
+            >
+                <option value="">-- All --</option>
+                {options.map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                ))}
+            </select>
+        )
+    }
+
+    if (field.fieldtype === "Check") {
+        return (
+            <select
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] transition-[color,box-shadow]"
+            >
+                <option value="">-- All --</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+            </select>
+        )
+    }
+
+    if (field.fieldtype === "Date") {
+        return (
+            <Input
+                type="date"
+                value={value}
+                onChange={e => onChange(e.target.value)}
+            />
+        )
+    }
+
+    if (field.fieldtype === "Int" || field.fieldtype === "Float") {
+        return (
+            <Input
+                type="number"
+                value={value}
+                placeholder="Any"
+                onChange={e => onChange(e.target.value)}
+            />
+        )
+    }
+
+    // Data and Link fields both use a plain text input
+    return (
+        <Input
+            type="text"
+            value={value}
+            placeholder={field.fieldtype === "Link" ? `Search ${field.options || "…"}` : "Any"}
+            onChange={e => onChange(e.target.value)}
+        />
+    )
 }
 
 
