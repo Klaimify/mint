@@ -37,6 +37,7 @@ import { BankTransaction } from "@/types/Accounts/BankTransaction"
 import FileUploadBanner from "@/components/common/FileUploadBanner"
 import { Input } from "@/components/ui/input"
 import { useDebounceValue } from "usehooks-ts"
+import LinkFieldCombobox from "@/components/common/LinkFieldCombobox"
 
 const RecordPaymentModal = () => {
 
@@ -1240,12 +1241,24 @@ const InvoiceFilterInput = ({
         )
     }
 
-    // Data and Link fields both use a plain text input
+    // Link fields use the full combobox with live search against the target DocType
+    if (field.fieldtype === "Link" && field.options) {
+        return (
+            <LinkFieldCombobox
+                doctype={field.options}
+                value={value || undefined}
+                onChange={(v) => onChange(v ?? "")}
+                placeholder={`Select ${field.options}`}
+            />
+        )
+    }
+
+    // Data (and any unrecognised types) use a plain text input
     return (
         <Input
             type="text"
             value={value}
-            placeholder={field.fieldtype === "Link" ? `Search ${field.options || "…"}` : "Any"}
+            placeholder="Any"
             onChange={e => onChange(e.target.value)}
         />
     )
