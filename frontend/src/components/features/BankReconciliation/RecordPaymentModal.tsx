@@ -997,6 +997,10 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
 
     const [selectedInvoices, setSelectedInvoices] = useState<OutstandingInvoice[]>([])
 
+    useEffect(() => {
+        setSelectedInvoices(data?.message ?? [])
+    }, [data?.message])
+
     const onSelectRow = (row: OutstandingInvoice) => {
         if (selectedInvoices.includes(row)) {
             setSelectedInvoices(selectedInvoices.filter((invoice) => invoice !== row))
@@ -1007,13 +1011,10 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
 
     const setFilterValue = (fieldname: string, value: string) => {
         setPendingFilters(prev => ({ ...prev, [fieldname]: value }))
-        // Clear selected invoices when filters change to avoid stale selection
-        setSelectedInvoices([])
     }
 
     const clearAllFilters = () => {
         setPendingFilters({})
-        setSelectedInvoices([])
     }
 
     const hasActiveFilters = Object.values(pendingFilters).some(v => v !== "")
