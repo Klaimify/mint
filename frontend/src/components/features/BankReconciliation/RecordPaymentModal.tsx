@@ -1017,6 +1017,14 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
     }
 
     const hasActiveFilters = Object.values(pendingFilters).some(v => v !== "")
+    const hasActiveDebouncedFilters = Object.values(debouncedFilters).some(v => v !== "")
+
+    // Auto-select all invoices when filtered results arrive
+    useEffect(() => {
+        if (hasActiveDebouncedFilters && !isLoading && data?.message && data.message.length > 0) {
+            setSelectedInvoices(data.message)
+        }
+    }, [data, hasActiveDebouncedFilters, isLoading])
 
     const { call: allocateAmountToReferences, loading: allocateAmountToReferencesLoading, error: allocateAmountToReferencesError } = useFrappePostCall('run_doc_method')
 
