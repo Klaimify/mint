@@ -9,6 +9,7 @@
   "file",
   "column_break_zhdv",
   "number_of_transactions",
+  "duplicate_transactions_skipped",
   "start_date",
   "end_date",
   "closing_balance"
@@ -27,6 +28,14 @@
    "fieldtype": "Int",
    "in_list_view": 1,
    "label": "Number of Transactions",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "duplicate_transactions_skipped",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Duplicate Transactions Skipped",
    "non_negative": 1,
    "read_only": 1
   },

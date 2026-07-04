@@ -86,21 +86,47 @@ class MintBankStatementImport(Document):
 	def on_submit(self):
 		if not self.transactions:
 			frappe.throw(_("No transactions found"))
-		
+
+		from mint.apis.statement_import import get_transaction_key
+
+		dates = [transaction.date for transaction in self.transactions if transaction.date]
+		filters = {"bank_account": self.bank_account, "docstatus": ["!=", 2]}
+		if dates:
+			filters["date"] = ["between", [min(dates), max(dates)]]
+
+		existing_transaction_keys = {
+			get_transaction_key(row.date, row.withdrawal, row.deposit, row.reference_number, row.description)
+			for row in frappe.get_all("Bank Transaction", filters=filters, fields=["date", "withdrawal", "deposit", "reference_number", "description"])
+		}
+
 		for transaction in self.transactions:
+			# Rows already imported in a previous submission of this document (e.g. before it was
+			# cancelled and amended) should not be re-inserted.
+			if transaction.get("imported"):
+				continue
+
+			withdrawal = transaction.get("amount") if transaction.get("type") == "Withdrawal" else 0
+			deposit = transaction.get("amount") if transaction.get("type") == "Deposit" else 0
+			transaction_key = get_transaction_key(transaction.get("date"), withdrawal, deposit, transaction.get("reference"), transaction.get("description"))
+
+			if transaction_key in existing_transaction_keys:
+				transaction.imported = 1
+				continue
+
 			bank_tx = frappe.get_doc({
 				"doctype": "Bank Transaction",
 				"date": transaction.get("date"),
 				"status": "Unreconciled",
 				"bank_account": self.bank_account,
-				"withdrawal": transaction.get("amount") if transaction.get("type") == "Withdrawal" else 0,
-				"deposit": transaction.get("amount") if transaction.get("type") == "Deposit" else 0,
+				"withdrawal": withdrawal,
+				"deposit": deposit,
 				"description": transaction.get("description"),
 				"reference_number": transaction.get("reference"),
 				"currency": self.currency,
 			})
 			bank_tx.insert()
 			bank_tx.submit()
+			existing_transaction_keys.add(transaction_key)
 			transaction.imported = 1
 
 

@@ -6,7 +6,7 @@ from frappe.utils.xlsxutils import (
 	read_xlsx_file_from_attached_file,
 )
 from frappe import _
-from frappe.utils import getdate
+from frappe.utils import getdate, flt
 
 from datetime import datetime
 
@@ -110,9 +110,26 @@ def import_statement(file_url: str, bank_account: str):
 
     data = get_statement_details(file_url, bank_account)
 
-    progress = 0
+    final_transactions = data.get("final_transactions")
 
-    for transaction in data.get("final_transactions"):
+    # Transactions that already exist in the system for this bank account/date range (see check_for_conflicts).
+    # Used to skip rows that would otherwise be imported as duplicates.
+    existing_transaction_keys = {
+        get_transaction_key(row.get("date"), row.get("withdrawal"), row.get("deposit"), row.get("reference_number"), row.get("description"))
+        for row in data.get("conflicting_transactions")
+    }
+
+    progress = 0
+    duplicate_count = 0
+
+    for transaction in final_transactions:
+        transaction_key = get_transaction_key(transaction.get("date"), transaction.get("withdrawal"), transaction.get("deposit"), transaction.get("reference"), transaction.get("description"))
+
+        if transaction_key in existing_transaction_keys:
+            duplicate_count += 1
+            progress += 1
+            continue
+
         bank_tx = frappe.get_doc({
             "doctype": "Bank Transaction",
             "date": transaction.get("date"),
@@ -128,21 +145,25 @@ def import_statement(file_url: str, bank_account: str):
         })
         bank_tx.insert()
         bank_tx.submit()
+        existing_transaction_keys.add(transaction_key)
         progress += 1
 
         frappe.publish_realtime("mint-statement-import-progress", {
-            "progress": round((progress / len(data.get("final_transactions"))) * 100),
+            "progress": round((progress / len(final_transactions)) * 100),
         }, user=frappe.session.user)
-    
+
     frappe.publish_realtime("mint-statement-import-progress", {
         "progress": 100,
-        "total": len(data.get("final_transactions")),
+        "total": len(final_transactions),
     }, user=frappe.session.user)
-    
+
+    imported_count = len(final_transactions) - duplicate_count
+
     log = frappe.new_doc("Mint Bank Statement Import Log")
     log.bank_account = bank_account
     log.file = file_url
-    log.number_of_transactions = len(data.get("final_transactions"))
+    log.number_of_transactions = imported_count
+    log.duplicate_transactions_skipped = duplicate_count
     log.start_date = data.get("statement_start_date")
     log.end_date = data.get("statement_end_date")
     log.closing_balance = data.get("closing_balance")
@@ -150,13 +171,20 @@ def import_statement(file_url: str, bank_account: str):
 
     if data.get("closing_balance") and data.get("closing_balance") > 0 and data.get("statement_end_date"):
         set_closing_balance_as_per_statement(bank_account, frappe.utils.getdate(data.get("statement_end_date")), data.get("closing_balance"))
-    
+
     from mint.apis.rules import run_rule_evaluation
     run_rule_evaluation()
 
+    if duplicate_count:
+        message = _("Bank statement imported successfully. {0} duplicate transaction(s) were skipped.").format(duplicate_count)
+    else:
+        message = _("Bank statement imported successfully.")
+
     return {
         "success": True,
-        "message": _("Bank statement imported successfully."),
+        "message": message,
+        "imported_count": imported_count,
+        "duplicate_count": duplicate_count,
         "start_date": data.get("statement_start_date"),
         "end_date": data.get("statement_end_date"),
     }
@@ -466,6 +494,21 @@ def get_closing_balance(transactions: list, date_format: str):
             closing_balance = transaction.get("balance")
 
     return getdate(statement_start_date), getdate(statement_end_date), get_float_amount(closing_balance)
+
+
+def get_transaction_key(date, withdrawal, deposit, reference_number, description):
+    """
+    Build a normalized identity tuple for a transaction, used to detect duplicates
+    between the rows being imported and transactions already present in the system.
+    """
+
+    return (
+        getdate(date),
+        flt(withdrawal, 2),
+        flt(deposit, 2),
+        (reference_number or "").strip(),
+        (description or "").strip(),
+    )
 
 
 def check_for_conflicts(bank_account: str, start_date: str, end_date: str):

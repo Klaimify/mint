@@ -61,7 +61,7 @@ type Props = {
 const StatementDetails = ({ data, bank, onBack }: Props) => {
     const dateFormatMeta = parseDateFormat(data.date_format)
 
-    const { call, loading, error } = useFrappePostCall<{ message: { success: boolean, start_date: string, end_date: string } }>('mint.apis.statement_import.import_statement')
+    const { call, loading, error } = useFrappePostCall<{ message: { success: boolean, start_date: string, end_date: string, imported_count: number, duplicate_count: number } }>('mint.apis.statement_import.import_statement')
 
     const navigate = useNavigate()
 
@@ -79,7 +79,11 @@ const StatementDetails = ({ data, bank, onBack }: Props) => {
                     toDate: response.message.end_date,
                 })
             }
-            toast.success(_("Bank statement imported."))
+            if (response.message.duplicate_count > 0) {
+                toast.success(_("Bank statement imported. {0} duplicate transaction(s) were skipped.", [response.message.duplicate_count.toString()]))
+            } else {
+                toast.success(_("Bank statement imported."))
+            }
             navigate(`/`)
         }).catch(() => {
             toast.error(_("There was an error while importing the bank statement."))
