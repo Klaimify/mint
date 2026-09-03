@@ -22,4 +22,6 @@ export interface MintSettings{
 	google_service_account_json_key?: string
 	/**	Google Document Processor - Bank Statement : Data	*/
 	bank_statement_gdoc_processor?: string
+	/**	Default Company Code : Link - Company Code	*/
+	default_company_code?: string
 }

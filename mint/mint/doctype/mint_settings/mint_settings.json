@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_bulk_edit": 1,
  "allow_rename": 1,
  "creation": "2025-08-06 15:24:34.392310",
  "doctype": "DocType",
@@ -12,7 +13,8 @@
   "google_project_id",
   "google_processor_location",
   "google_service_account_json_key",
-  "bank_statement_gdoc_processor"
+  "bank_statement_gdoc_processor",
+  "default_company_code"
  ],
  "fields": [
   {
@@ -66,13 +68,19 @@
    "label": "Match Transfers across (days)",
    "non_negative": 1,
    "reqd": 1
+  },
+  {
+   "fieldname": "default_company_code",
+   "fieldtype": "Link",
+   "label": "Default Company Code",
+   "options": "Company Code"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-01-20 14:13:14.110561",
+ "modified": "2026-09-03 18:57:59.210449",
  "modified_by": "Administrator",
  "module": "Mint",
  "name": "Mint Settings",

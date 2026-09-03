@@ -5,7 +5,7 @@ import _ from "@/lib/translate"
 import { UnreconciledTransaction, useGetRuleForTransaction, useRefreshUnreconciledTransactions, useUpdateActionLog } from "./utils"
 import { useFieldArray, useForm, useFormContext, useWatch } from "react-hook-form"
 import { getCompanyCostCenter, getCompanyCurrency } from "@/lib/company"
-import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk"
+import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk"
 import { toast } from "sonner"
 import ErrorBanner from "@/components/ui/error-banner"
 import { Button } from "@/components/ui/button"
@@ -35,6 +35,13 @@ import { Label } from "@/components/ui/label"
 import { FileDropzone } from "@/components/ui/file-dropzone"
 import { BankTransaction } from "@/types/Accounts/BankTransaction"
 import FileUploadBanner from "@/components/common/FileUploadBanner"
+import { MintSettings } from "@/types/Mint/MintSettings"
+
+/** Company Code configured as the default in Mint Settings, to prefill Record Payment forms */
+const useDefaultCompanyCode = () => {
+    const { data } = useFrappeGetDoc<MintSettings>("Mint Settings", "Mint Settings")
+    return data?.default_company_code
+}
 
 const RecordPaymentModal = () => {
 
@@ -91,6 +98,7 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
         /** GL account that's paid from or paid to */
         account: string
         mode_of_payment: PaymentEntry['mode_of_payment']
+        company_code: PaymentEntry['company_code']
     }>()
 
     const { call: createPaymentEntry, loading, error } = useFrappePostCall<{ message: { transaction: BankTransaction, payment_entry: PaymentEntry }[] }>('mint.apis.bank_reconciliation.create_bulk_payment_entry_and_reconcile')
@@ -99,13 +107,14 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
 
     const addToActionLog = useUpdateActionLog()
 
-    const onSubmit = (data: { party_type: PaymentEntry['party_type'], party: PaymentEntry['party'], account: string, mode_of_payment: PaymentEntry['mode_of_payment'] }) => {
+    const onSubmit = (data: { party_type: PaymentEntry['party_type'], party: PaymentEntry['party'], account: string, mode_of_payment: PaymentEntry['mode_of_payment'], company_code: PaymentEntry['company_code'] }) => {
 
         createPaymentEntry({
             bank_transaction_names: transactions.map((transaction) => transaction.name),
             party_type: data.party_type,
             party: data.party,
-            account: data.account
+            account: data.account,
+            company_code: data.company_code
         }).then(({ message }) => {
 
             addToActionLog({
@@ -146,6 +155,14 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
     const party_name = useWatch({ control: form.control, name: 'party_name' })
 
     const party = useWatch({ control: form.control, name: 'party' })
+
+    const defaultCompanyCode = useDefaultCompanyCode()
+
+    useEffect(() => {
+        if (defaultCompanyCode && !form.getValues('company_code')) {
+            form.setValue('company_code', defaultCompanyCode)
+        }
+    }, [defaultCompanyCode, form])
 
     const { call } = useContext(FrappeContext) as FrappeConfig
 
@@ -253,6 +270,14 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
                         />
                     </div>
 
+                    <div className="col-span-2">
+                        <LinkFormField
+                            name='company_code'
+                            label={_("Company Code")}
+                            doctype="Company Code"
+                        />
+                    </div>
+
                 </div>
 
 
@@ -315,6 +340,14 @@ const PaymentEntryForm = ({ selectedTransaction, selectedBankAccount }: { select
         }
 
     }, [rule, setUnpaidInvoiceOpen])
+
+    const defaultCompanyCode = useDefaultCompanyCode()
+
+    useEffect(() => {
+        if (defaultCompanyCode && !form.getValues('company_code')) {
+            form.setValue('company_code', defaultCompanyCode)
+        }
+    }, [defaultCompanyCode, form])
 
     const { call: createPaymentEntry, loading, error, isCompleted } = useFrappePostCall<{ message: { transaction: BankTransaction, payment_entry: PaymentEntry } }>('mint.apis.bank_reconciliation.create_payment_entry_and_reconcile')
 
