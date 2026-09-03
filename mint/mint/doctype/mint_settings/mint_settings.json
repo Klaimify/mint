@@ -7,6 +7,8 @@
  "field_order": [
   "general_section",
   "transfer_match_days",
+  "invoice_filters_section",
+  "invoice_filter_fields",
   "google_document_ai_section",
   "automatically_run_rules_on_unreconciled_transactions",
   "google_project_id",
@@ -56,6 +58,18 @@
    "fieldname": "general_section",
    "fieldtype": "Section Break",
    "label": "General"
+  },
+  {
+   "fieldname": "invoice_filters_section",
+   "fieldtype": "Section Break",
+   "label": "Invoice Filters"
+  },
+  {
+   "description": "Configure which fields appear as filters in the invoice selection popup during payment entry.",
+   "fieldname": "invoice_filter_fields",
+   "fieldtype": "Table",
+   "label": "Invoice Filter Fields",
+   "options": "Mint Invoice Filter Field"
   },
   {
    "default": "4",
