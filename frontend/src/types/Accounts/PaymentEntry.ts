@@ -117,6 +117,8 @@ export interface PaymentEntry{
 	project?: string
 	/**	Cost Center : Link - Cost Center	*/
 	cost_center?: string
+	/**	Company Code : Link - Company Code	*/
+	company_code?: string
 	/**	Status : Select	*/
 	status?: "" | "Draft" | "Submitted" | "Cancelled"
 	/**	Custom Remarks : Check	*/

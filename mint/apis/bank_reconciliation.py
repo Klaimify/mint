@@ -354,11 +354,12 @@ def create_bank_entry_and_reconcile(bank_transaction_name: str | int,
     }
 
 @frappe.whitelist(methods=['POST'])
-def create_bulk_payment_entry_and_reconcile(bank_transaction_names: list[str | int], 
-                                            party_type: str, 
-                                            party: str | int, 
+def create_bulk_payment_entry_and_reconcile(bank_transaction_names: list[str | int],
+                                            party_type: str,
+                                            party: str | int,
                                             account: str,
-                                            mode_of_payment: str | None = None):
+                                            mode_of_payment: str | None = None,
+                                            company_code: str | None = None):
     """
         Create a payment entry and reconcile it with the bank transaction
     """
@@ -398,6 +399,7 @@ def create_bulk_payment_entry_and_reconcile(bank_transaction_names: list[str | i
             "reference_date": bank_transaction.date,
             "posting_date": bank_transaction.date,
             "reference_no": (bank_transaction.reference_number or bank_transaction.description or '')[:140],
+            "company_code": company_code,
         })
 
         payment_entry_doc.insert()

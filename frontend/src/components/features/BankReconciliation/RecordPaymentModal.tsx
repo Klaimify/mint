@@ -94,6 +94,7 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
         /** GL account that's paid from or paid to */
         account: string
         mode_of_payment: PaymentEntry['mode_of_payment']
+        company_code: PaymentEntry['company_code']
     }>()
 
     const { call: createPaymentEntry, loading, error } = useFrappePostCall<{ message: { transaction: BankTransaction, payment_entry: PaymentEntry }[] }>('mint.apis.bank_reconciliation.create_bulk_payment_entry_and_reconcile')
@@ -102,13 +103,14 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
 
     const addToActionLog = useUpdateActionLog()
 
-    const onSubmit = (data: { party_type: PaymentEntry['party_type'], party: PaymentEntry['party'], account: string, mode_of_payment: PaymentEntry['mode_of_payment'] }) => {
+    const onSubmit = (data: { party_type: PaymentEntry['party_type'], party: PaymentEntry['party'], account: string, mode_of_payment: PaymentEntry['mode_of_payment'], company_code: PaymentEntry['company_code'] }) => {
 
         createPaymentEntry({
             bank_transaction_names: transactions.map((transaction) => transaction.name),
             party_type: data.party_type,
             party: data.party,
-            account: data.account
+            account: data.account,
+            company_code: data.company_code
         }).then(({ message }) => {
 
             addToActionLog({
@@ -183,7 +185,7 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
 
                 <SelectedTransactionsTable />
 
-                <div className='grid grid-cols-8 gap-4'>
+                <div className='grid grid-cols-10 gap-4'>
                     <div className="col-span-1">
                         <PartyTypeFormField
                             name='party_type'
@@ -253,6 +255,14 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
                             name='mode_of_payment'
                             label={_("Mode of Payment")}
                             doctype="Mode of Payment"
+                        />
+                    </div>
+
+                    <div className="col-span-2">
+                        <LinkFormField
+                            name='company_code'
+                            label={_("Company Code")}
+                            doctype="Company Code"
                         />
                     </div>
 
