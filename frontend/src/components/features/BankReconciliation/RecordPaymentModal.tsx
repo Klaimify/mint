@@ -35,6 +35,9 @@ import { Label } from "@/components/ui/label"
 import { FileDropzone } from "@/components/ui/file-dropzone"
 import { BankTransaction } from "@/types/Accounts/BankTransaction"
 import FileUploadBanner from "@/components/common/FileUploadBanner"
+import { Input } from "@/components/ui/input"
+import { useDebounceValue } from "usehooks-ts"
+import LinkFieldCombobox from "@/components/common/LinkFieldCombobox"
 
 const RecordPaymentModal = () => {
 
@@ -447,29 +450,6 @@ const PaymentEntryForm = ({ selectedTransaction, selectedBankAccount }: { select
                                 />
                             </div>
 
-                            <div className="col-span-2">
-                                <LinkFormField
-                                    name='company_code'
-                                    label={_("Company Code")}
-                                    doctype="Company Code"
-                                />
-                            </div>
-
-                            <div className="col-span-2">
-                                <LinkFormField
-                                    name='cost_center'
-                                    label={_("Cost Center")}
-                                    doctype="Cost Center"
-                                    customQuery={{
-                                        query: "erpnext.controllers.queries.get_filtered_dimensions",
-                                        filters: {
-                                            "dimension": "cost_center",
-                                            "company": selectedTransaction.company ?? '',
-                                        }
-                                    }}
-                                />
-                            </div>
-
                         </div>
 
                     </div>
@@ -530,6 +510,7 @@ const PaymentEntryForm = ({ selectedTransaction, selectedBankAccount }: { select
 }
 
 const isUnpaidInvoicesButtonOpen = atom(false)
+const isOrdersButtonOpen = atom(false)
 
 const PartyField = () => {
 
@@ -701,8 +682,9 @@ const InvoicesSection = ({ currency }: { currency: string }) => {
 
     return <div className="flex flex-col gap-2">
         <div className="flex gap-4 items-center">
-            <H4 className="text-base">{_("Invoices")}</H4>
+            <H4 className="text-base">{_("Invoices & Orders")}</H4>
             <GetUnpaidInvoicesButton />
+            <GetUnpaidOrdersButton />
         </div>
         <Table>
             <TableHeader>
@@ -959,37 +941,65 @@ interface OutstandingInvoice {
     account?: string,
     allocated_amount?: number,
 }
+interface InvoiceFilterField {
+    label: string
+    fieldname: string
+    filter_level: "Invoice" | "Item"
+    document_type: "Both" | "Sales Invoice" | "Purchase Invoice"
+    fieldtype: "Data" | "Link" | "Select" | "Date" | "Int" | "Float" | "Check"
+    options: string
+}
+
 const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
 
     const { getValues, setValue } = useFormContext<PaymentEntry>()
 
     const { allocatePartyAmount } = usePaymentEntryCalculations()
 
+    // Load configurable filter fields from Mint Settings
+    const { data: filterFieldsData } = useFrappeGetCall<{ message: InvoiceFilterField[] }>(
+        'mint.apis.bank_reconciliation.get_invoice_filter_fields', {}
+    )
+    const filterFields = filterFieldsData?.message ?? []
+
+    // Pending filter values (immediate input state)
+    const [pendingFilters, setPendingFilters] = useState<Record<string, string>>({})
+
+    // Debounced filters sent to the API (300 ms delay for text inputs)
+    const [debouncedFilters] = useDebounceValue(pendingFilters, 300)
+
+    const activeFilterJson = useMemo(
+        () => JSON.stringify(debouncedFilters),
+        [debouncedFilters]
+    )
+
+    const partyAccount = getValues('payment_type') === 'Pay' ? getValues('paid_to') : getValues('paid_from')
+
     const { data, isLoading, error } = useFrappeGetCall<{
         message: OutstandingInvoice[],
         _server_messages?: string
-    }>('erpnext.accounts.doctype.payment_entry.payment_entry.get_outstanding_reference_documents', {
-        args: {
-            company: getValues('company'),
-            posting_date: getValues('posting_date'),
-            party_type: getValues('party_type'),
-            party: getValues('party'),
-            party_account: getValues('payment_type') === 'Pay' ? getValues('paid_to') : getValues('paid_from'),
-            get_outstanding_invoices: true,
-            allocate_payment_amount: 1
-        }
+    }>('mint.apis.bank_reconciliation.get_outstanding_invoices_with_filters', {
+        company: getValues('company'),
+        posting_date: getValues('posting_date'),
+        party_type: getValues('party_type'),
+        party: getValues('party'),
+        party_account: partyAccount,
+        invoice_filters: activeFilterJson,
     })
 
     const message = useMemo(() => {
         if (data && data._server_messages) {
             const message = JSON.parse(JSON.parse(data._server_messages)[0])
-
             return message.message
         }
         return ''
     }, [data])
 
     const [selectedInvoices, setSelectedInvoices] = useState<OutstandingInvoice[]>([])
+
+    useEffect(() => {
+        setSelectedInvoices(data?.message ?? [])
+    }, [data?.message])
 
     const onSelectRow = (row: OutstandingInvoice) => {
         if (selectedInvoices.includes(row)) {
@@ -998,6 +1008,16 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
             setSelectedInvoices([...selectedInvoices, row])
         }
     }
+
+    const setFilterValue = (fieldname: string, value: string) => {
+        setPendingFilters(prev => ({ ...prev, [fieldname]: value }))
+    }
+
+    const clearAllFilters = () => {
+        setPendingFilters({})
+    }
+
+    const hasActiveFilters = Object.values(pendingFilters).some(v => v !== "")
 
     const { call: allocateAmountToReferences, loading: allocateAmountToReferencesLoading, error: allocateAmountToReferencesError } = useFrappePostCall('run_doc_method')
 
@@ -1042,10 +1062,43 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
             onClose()
         })
     }
+
     return <div className="flex flex-col gap-4">
+
+        {/* Dynamic filter panel — only shown when filters are configured in Mint Settings */}
+        {filterFields.length > 0 && (
+            <div className="rounded-md border p-3 bg-muted/30">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-foreground">Filters</span>
+                    {hasActiveFilters && (
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={clearAllFilters}>
+                            Clear all
+                        </Button>
+                    )}
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">
+                    {filterFields.map((field) => (
+                        <div key={field.fieldname} className="flex flex-col gap-1">
+                            <Label className="text-xs text-muted-foreground">
+                                {field.label}
+                                {field.filter_level === "Item" && (
+                                    <span className="ml-1 text-[10px] bg-muted rounded px-1">item</span>
+                                )}
+                            </Label>
+                            <InvoiceFilterInput
+                                field={field}
+                                value={pendingFilters[field.fieldname] ?? ""}
+                                onChange={(v) => setFilterValue(field.fieldname, v)}
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+
         {isLoading ? <TableLoader columns={6} /> : null}
         {error && <ErrorBanner error={error} />}
-        {error && <ErrorBanner error={allocateAmountToReferencesError} />}
+        {allocateAmountToReferencesError && <ErrorBanner error={allocateAmountToReferencesError} />}
         {message ? <MissingFiltersBanner text={<MarkdownRenderer content={message} />} /> : null}
 
         {data?.message && data?.message?.length > 0 ? <Table>
@@ -1060,24 +1113,12 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
                             }
                         }} />
                     </TableHead>
-                    <TableHead>
-                        Type
-                    </TableHead>
-                    <TableHead>
-                        Name
-                    </TableHead>
-                    <TableHead>
-                        Invoice No
-                    </TableHead>
-                    <TableHead>
-                        Due Date
-                    </TableHead>
-                    <TableHead className="text-right">
-                        Grand Total
-                    </TableHead>
-                    <TableHead className="text-right">
-                        Outstanding
-                    </TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Invoice No</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead className="text-right">Grand Total</TableHead>
+                    <TableHead className="text-right">Outstanding</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -1086,7 +1127,6 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
                         key={ref.voucher_no}
                         onClick={(e) => {
                             const target = e.target as HTMLElement
-                            // Do not select the checkbox if the user clicks on the checkbox or the link
                             if (target.tagName !== 'INPUT' && !target.className.includes('chakra-checkbox') && !target.className.includes('chakra-link')) {
                                 onSelectRow(ref)
                             }
@@ -1103,31 +1143,28 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
                                 }}
                             />
                         </TableCell>
-                        <TableCell>
-                            {ref.voucher_type}
-                        </TableCell>
+                        <TableCell>{ref.voucher_type}</TableCell>
                         <TableCell>
                             <a
                                 target="_blank"
                                 className="underline underline-offset-2"
                                 href={`/app/${slug(ref.voucher_type)}/${ref.voucher_no}`}>{ref.voucher_no}</a>
                         </TableCell>
-                        <TableCell>
-                            {ref.bill_no ?? "-"}
-                        </TableCell>
-                        <TableCell>
-                            {formatDate(ref.due_date)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                            {formatCurrency(ref.invoice_amount)}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                            {formatCurrency(ref.outstanding_amount)}
-                        </TableCell>
+                        <TableCell>{ref.bill_no ?? "-"}</TableCell>
+                        <TableCell>{formatDate(ref.due_date)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(ref.invoice_amount)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(ref.outstanding_amount)}</TableCell>
                     </TableRow>
                 ))}
             </TableBody>
         </Table> : null}
+
+        {!isLoading && data?.message?.length === 0 && (
+            <p className="text-center text-sm text-muted-foreground py-4">
+                No outstanding invoices found{hasActiveFilters ? " matching the active filters" : ""}.
+            </p>
+        )}
+
         <div className="flex justify-between items-center">
             <div className="flex gap-2">
                 <span className="text-muted-foreground">Invoices: <span className="text-foreground font-mono font-medium">{selectedInvoices.length}</span></span> /
@@ -1137,14 +1174,290 @@ const FetchInvoicesModal = ({ onClose }: { onClose: () => void }) => {
                 <DialogClose asChild>
                     <Button variant='ghost' disabled={allocateAmountToReferencesLoading}>Cancel</Button>
                 </DialogClose>
-                <Button onClick={onSelect} disabled={allocateAmountToReferencesLoading}>Select</Button>
+                <Button onClick={onSelect} disabled={allocateAmountToReferencesLoading || selectedInvoices.length === 0}>Select</Button>
             </DialogFooter>
         </div>
 
     </div>
 }
 
+/** Renders the right input control depending on the field type. */
+const InvoiceFilterInput = ({
+    field,
+    value,
+    onChange,
+}: {
+    field: InvoiceFilterField
+    value: string
+    onChange: (v: string) => void
+}) => {
+    if (field.fieldtype === "Select") {
+        const options = (field.options ?? "").split("\n").filter(Boolean)
+        return (
+            <select
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] transition-[color,box-shadow]"
+            >
+                <option value="">-- All --</option>
+                {options.map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                ))}
+            </select>
+        )
+    }
 
+    if (field.fieldtype === "Check") {
+        return (
+            <select
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] transition-[color,box-shadow]"
+            >
+                <option value="">-- All --</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+            </select>
+        )
+    }
+
+    if (field.fieldtype === "Date") {
+        return (
+            <Input
+                type="date"
+                value={value}
+                onChange={e => onChange(e.target.value)}
+            />
+        )
+    }
+
+    if (field.fieldtype === "Int" || field.fieldtype === "Float") {
+        return (
+            <Input
+                type="number"
+                value={value}
+                placeholder="Any"
+                onChange={e => onChange(e.target.value)}
+            />
+        )
+    }
+
+    // Link fields use the full combobox with live search against the target DocType
+    if (field.fieldtype === "Link" && field.options) {
+        return (
+            <LinkFieldCombobox
+                doctype={field.options}
+                value={value || undefined}
+                onChange={(v) => onChange(v ?? "")}
+                placeholder={`Select ${field.options}`}
+            />
+        )
+    }
+
+    // Data (and any unrecognised types) use a plain text input
+    return (
+        <Input
+            type="text"
+            value={value}
+            placeholder="Any"
+            onChange={e => onChange(e.target.value)}
+        />
+    )
+}
+
+
+
+const GetUnpaidOrdersButton = () => {
+
+    const [isOpen, setIsOpen] = useAtom(isOrdersButtonOpen)
+
+    const { control } = useFormContext<PaymentEntry>()
+
+    const partyType = useWatch({ control, name: 'party_type' })
+    const party = useWatch({ control, name: 'party' })
+    const partyName = useWatch({ control, name: 'party_name' })
+
+    return <>
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            {partyType && party && <DialogTrigger asChild>
+                <Button variant='outline' size='sm' type='button'>{_("Link Orders")}</Button>
+            </DialogTrigger>}
+            <DialogContent className="min-w-[75vw]">
+                <DialogHeader>
+                    <DialogTitle>{_("Select Orders")}</DialogTitle>
+                    <DialogDescription>{_("Select purchase or sales orders from {0} to link as advance payments.", [partyName ?? party])}</DialogDescription>
+                </DialogHeader>
+                <FetchOrdersModal onClose={() => setIsOpen(false)} />
+            </DialogContent>
+        </Dialog>
+    </>
+}
+
+const FetchOrdersModal = ({ onClose }: { onClose: () => void }) => {
+
+    const { getValues, setValue } = useFormContext<PaymentEntry>()
+
+    const { allocatePartyAmount } = usePaymentEntryCalculations()
+
+    const { data, isLoading, error } = useFrappeGetCall<{
+        message: OutstandingInvoice[],
+        _server_messages?: string
+    }>('erpnext.accounts.doctype.payment_entry.payment_entry.get_outstanding_reference_documents', {
+        args: {
+            company: getValues('company'),
+            posting_date: getValues('posting_date'),
+            party_type: getValues('party_type'),
+            party: getValues('party'),
+            party_account: getValues('payment_type') === 'Pay' ? getValues('paid_to') : getValues('paid_from'),
+            get_outstanding_invoices: false,
+            get_orders_to_be_billed: true,
+            allocate_payment_amount: 1
+        }
+    })
+
+    const message = useMemo(() => {
+        if (data && data._server_messages) {
+            const msg = JSON.parse(JSON.parse(data._server_messages)[0])
+            return msg.message
+        }
+        return ''
+    }, [data])
+
+    const [selectedOrders, setSelectedOrders] = useState<OutstandingInvoice[]>([])
+
+    const onSelectRow = (row: OutstandingInvoice) => {
+        if (selectedOrders.includes(row)) {
+            setSelectedOrders(selectedOrders.filter((order) => order !== row))
+        } else {
+            setSelectedOrders([...selectedOrders, row])
+        }
+    }
+
+    const { call: allocateAmountToReferences, loading: allocateAmountToReferencesLoading, error: allocateAmountToReferencesError } = useFrappePostCall('run_doc_method')
+
+    const onSelect = () => {
+        const existingReferences = getValues('references') ?? []
+
+        allocateAmountToReferences({
+            args: {
+                paid_amount: getValues("payment_type") === "Pay" ? getValues("paid_amount") : getValues("received_amount"),
+                allocate_payment_amount: 1,
+                paid_amount_change: false
+            },
+            method: 'allocate_amount_to_references',
+            docs: {
+                doctype: 'Payment Entry',
+                ...getValues(),
+                name: "new-payment-entry-1",
+                __unsaved: 1,
+                __islocal: 1,
+                references: [
+                    ...existingReferences,
+                    ...selectedOrders.map((ref: OutstandingInvoice) => ({
+                        reference_doctype: ref.voucher_type,
+                        reference_name: ref.voucher_no,
+                        due_date: ref.due_date,
+                        total_amount: ref.invoice_amount,
+                        outstanding_amount: ref.outstanding_amount,
+                        bill_no: ref.bill_no,
+                        payment_term: ref.payment_term,
+                        payment_term_outstanding: ref.payment_term_outstanding,
+                        allocated_amount: ref.allocated_amount,
+                        account: ref.account,
+                        exchange_rate: 1,
+                    }))
+                ]
+            }
+        }).then((res) => {
+            const doc = res.docs[0]
+            setValue('references', doc.references)
+            setValue('unallocated_amount', doc.unallocated_amount)
+            setValue('total_allocated_amount', doc.total_allocated_amount)
+            setValue('difference_amount', doc.difference_amount)
+
+            allocatePartyAmount(getValues("payment_type") === "Pay" ? getValues("paid_amount") : getValues("received_amount"))
+
+            onClose()
+        })
+    }
+
+    return <div className="flex flex-col gap-4">
+        {isLoading ? <TableLoader columns={6} /> : null}
+        {error && <ErrorBanner error={error} />}
+        {allocateAmountToReferencesError && <ErrorBanner error={allocateAmountToReferencesError} />}
+        {message ? <MissingFiltersBanner text={<MarkdownRenderer content={message} />} /> : null}
+
+        {data?.message && data?.message?.length > 0 ? <Table>
+            <TableHeader>
+                <TableRow>
+                    <TableHead>
+                        <Checkbox checked={selectedOrders.length === data?.message?.length} onCheckedChange={(checked) => {
+                            if (checked) {
+                                setSelectedOrders(data?.message)
+                            } else {
+                                setSelectedOrders([])
+                            }
+                        }} />
+                    </TableHead>
+                    <TableHead>{_("Type")}</TableHead>
+                    <TableHead>{_("Order No")}</TableHead>
+                    <TableHead>{_("Due Date")}</TableHead>
+                    <TableHead className="text-right">{_("Grand Total")}</TableHead>
+                    <TableHead className="text-right">{_("Outstanding")}</TableHead>
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                {data.message.map((ref) => (
+                    <TableRow
+                        key={ref.voucher_no}
+                        onClick={(e) => {
+                            const target = e.target as HTMLElement
+                            if (target.tagName !== 'INPUT' && !target.className.includes('chakra-checkbox') && !target.className.includes('chakra-link')) {
+                                onSelectRow(ref)
+                            }
+                        }}
+                        className="cursor-pointer">
+                        <TableCell>
+                            <Checkbox checked={selectedOrders.includes(ref)}
+                                onCheckedChange={(checked) => {
+                                    if (checked) {
+                                        setSelectedOrders([...selectedOrders, ref])
+                                    } else {
+                                        setSelectedOrders(selectedOrders.filter((order) => order !== ref))
+                                    }
+                                }}
+                            />
+                        </TableCell>
+                        <TableCell>{ref.voucher_type}</TableCell>
+                        <TableCell>
+                            <a
+                                target="_blank"
+                                className="underline underline-offset-2"
+                                href={`/app/${slug(ref.voucher_type)}/${ref.voucher_no}`}>{ref.voucher_no}</a>
+                        </TableCell>
+                        <TableCell>{formatDate(ref.due_date)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(ref.invoice_amount)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(ref.outstanding_amount)}</TableCell>
+                    </TableRow>
+                ))}
+            </TableBody>
+        </Table> : (!isLoading && <p className="text-sm text-muted-foreground">{_("No outstanding orders found for this party.")}</p>)}
+
+        <div className="flex justify-between items-center">
+            <div className="flex gap-2">
+                <span className="text-muted-foreground">{_("Selected")}: <span className="text-foreground font-mono font-medium">{selectedOrders.length}</span></span>
+                <span>/</span>
+                <span className="text-muted-foreground">{_("Total")}: <span className="text-foreground font-mono font-medium">{formatCurrency(selectedOrders.reduce((acc, order) => acc + order.outstanding_amount, 0))}</span></span>
+            </div>
+            <DialogFooter className="pt-2">
+                <DialogClose asChild>
+                    <Button variant='ghost' disabled={allocateAmountToReferencesLoading}>{_("Cancel")}</Button>
+                </DialogClose>
+                <Button onClick={onSelect} disabled={allocateAmountToReferencesLoading || selectedOrders.length === 0}>{_("Add to Payment")}</Button>
+            </DialogFooter>
+        </div>
+    </div>
+}
 
 const OtherChargesSection = ({ currency }: { currency: string }) => {
 
