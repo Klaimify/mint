@@ -447,6 +447,29 @@ const PaymentEntryForm = ({ selectedTransaction, selectedBankAccount }: { select
                                 />
                             </div>
 
+                            <div className="col-span-2">
+                                <LinkFormField
+                                    name='company_code'
+                                    label={_("Company Code")}
+                                    doctype="Company Code"
+                                />
+                            </div>
+
+                            <div className="col-span-2">
+                                <LinkFormField
+                                    name='cost_center'
+                                    label={_("Cost Center")}
+                                    doctype="Cost Center"
+                                    customQuery={{
+                                        query: "erpnext.controllers.queries.get_filtered_dimensions",
+                                        filters: {
+                                            "dimension": "cost_center",
+                                            "company": selectedTransaction.company ?? '',
+                                        }
+                                    }}
+                                />
+                            </div>
+
                         </div>
 
                     </div>
