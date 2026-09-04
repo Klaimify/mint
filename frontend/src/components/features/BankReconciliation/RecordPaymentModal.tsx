@@ -158,6 +158,17 @@ const BulkPaymentEntryForm = ({ transactions }: { transactions: UnreconciledTran
 
     const company = transactions && transactions.length > 0 ? transactions[0].company : (currentCompany ?? '')
 
+    // Default Company Code from Mint Settings
+    const { data: defaultCompanyCodeData } = useFrappeGetCall<{ message: string }>(
+        'mint.apis.bank_reconciliation.get_default_company_code'
+    )
+
+    useEffect(() => {
+        if (defaultCompanyCodeData?.message) {
+            form.setValue('company_code', defaultCompanyCodeData.message)
+        }
+    }, [defaultCompanyCodeData, form])
+
     const onPartyChange = (event: ChangeEvent<HTMLInputElement>) => {
         // Fetch the party and account
         if (event.target.value) {
@@ -337,6 +348,17 @@ const PaymentEntryForm = ({ selectedTransaction, selectedBankAccount }: { select
 
     const { file: frappeFile } = useContext(FrappeContext) as FrappeConfig
 
+    // Default Company Code from Mint Settings
+    const { data: defaultCompanyCodeData } = useFrappeGetCall<{ message: string }>(
+        'mint.apis.bank_reconciliation.get_default_company_code'
+    )
+
+    useEffect(() => {
+        if (defaultCompanyCodeData?.message) {
+            form.setValue('company_code', defaultCompanyCodeData.message)
+        }
+    }, [defaultCompanyCodeData, form])
+
     const [isUploading, setIsUploading] = useState(false)
     const [uploadProgress, setUploadProgress] = useState(0)
 
@@ -457,6 +479,14 @@ const PaymentEntryForm = ({ selectedTransaction, selectedBankAccount }: { select
                                     name='mode_of_payment'
                                     label={_("Mode of Payment")}
                                     doctype="Mode of Payment"
+                                />
+                            </div>
+
+                            <div className="col-span-2">
+                                <LinkFormField
+                                    name='company_code'
+                                    label={_("Company Code")}
+                                    doctype="Company Code"
                                 />
                             </div>
 

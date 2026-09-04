@@ -13,11 +13,11 @@ class MintSettings(Document):
 
 	if TYPE_CHECKING:
 		from frappe.types import DF
-		from typing import List
 		from mint.mint.doctype.mint_invoice_filter_field.mint_invoice_filter_field import MintInvoiceFilterField
 
 		automatically_run_rules_on_unreconciled_transactions: DF.Check
 		bank_statement_gdoc_processor: DF.Data | None
+		default_company_code: DF.Link | None
 		google_processor_location: DF.Literal["us", "eu"]
 		google_project_id: DF.Data | None
 		google_service_account_json_key: DF.Password | None

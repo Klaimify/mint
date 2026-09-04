@@ -453,6 +453,14 @@ def get_account_defaults(account: str):
     return get_default_cost_center(company) if report_type == "Profit and Loss" else  ""
 
 
+@frappe.whitelist(methods=['GET'])
+def get_default_company_code():
+    """
+        Get the default Company Code configured in Mint Settings
+    """
+    return frappe.db.get_single_value("Mint Settings", "default_company_code")
+
+
 @frappe.whitelist(methods=["GET"])
 def get_party_details(company: str, party_type: str, party: str | int):
 

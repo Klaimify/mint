@@ -9,6 +9,7 @@
   "transfer_match_days",
   "invoice_filters_section",
   "invoice_filter_fields",
+  "default_company_code",
   "google_document_ai_section",
   "automatically_run_rules_on_unreconciled_transactions",
   "google_project_id",
@@ -80,13 +81,19 @@
    "label": "Match Transfers across (days)",
    "non_negative": 1,
    "reqd": 1
+  },
+  {
+   "fieldname": "default_company_code",
+   "fieldtype": "Link",
+   "label": "Default Company Code",
+   "options": "Company Code"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-01-20 14:13:14.110561",
+ "modified": "2026-09-04 12:13:24.778644",
  "modified_by": "Administrator",
  "module": "Mint",
  "name": "Mint Settings",
