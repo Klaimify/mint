@@ -93,4 +93,6 @@ export interface JournalEntry{
 	auto_repeat?: string
 	/**	Amended From : Link - Journal Entry	*/
 	amended_from?: string
+	/**	Company Code : Link - Company Code	*/
+	company_code?: string
 }

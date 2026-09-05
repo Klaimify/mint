@@ -95,8 +95,9 @@ def undo_reconciliation_action(bank_transaction_id: str | int, voucher_type: str
 
 
 @frappe.whitelist(methods=["POST"])
-def create_bulk_internal_transfer(bank_transaction_names: list[str|int], 
-                                  bank_account: str):
+def create_bulk_internal_transfer(bank_transaction_names: list[str|int],
+                                  bank_account: str,
+                                  company_code: str | None = None):
     """
         Create an internal transfer for multiple bank transactions
     """
@@ -124,23 +125,25 @@ def create_bulk_internal_transfer(bank_transaction_names: list[str|int],
                                  reference_date=bank_transaction.date,
                                  reference_no=reference_no,
                                  paid_from=paid_from,
-                                 paid_to=paid_to,)
+                                 paid_to=paid_to,
+                                 company_code=company_code,)
         
         output.append(final_transaction)
     
     return output
 
 @frappe.whitelist()
-def create_internal_transfer(bank_transaction_name: str|int, 
-                             posting_date: str | datetime.date, 
-                             reference_date: str | datetime.date, 
-                             reference_no: str, 
-                             paid_from: str, 
+def create_internal_transfer(bank_transaction_name: str|int,
+                             posting_date: str | datetime.date,
+                             reference_date: str | datetime.date,
+                             reference_no: str,
+                             paid_from: str,
                              paid_to: str,
                              custom_remarks: bool = False,
                              remarks: str = None,
                              mirror_transaction_name: str | int = None,
-                             dimensions: dict = None):
+                             dimensions: dict = None,
+                             company_code: str | None = None):
     """
     Create an internal transfer payment entry
     """
@@ -162,6 +165,7 @@ def create_internal_transfer(bank_transaction_name: str|int,
     pe.custom_remarks = custom_remarks
     pe.paid_amount = bank_transaction.unallocated_amount
     pe.received_amount = bank_transaction.unallocated_amount
+    pe.company_code = company_code
 
     # TODO: Support multi-currency transactions
     pe.target_exchange_rate = 1.0
@@ -204,8 +208,9 @@ def create_internal_transfer(bank_transaction_name: str|int,
     }
 
 @frappe.whitelist(methods=['POST'])
-def create_bulk_bank_entry_and_reconcile(bank_transactions: list[str|int], 
-                                         account: str):
+def create_bulk_bank_entry_and_reconcile(bank_transactions: list[str|int],
+                                         account: str,
+                                         company_code: str | None = None):
     """
      Create bank entries for all transactions and reconcile them
     """
@@ -263,7 +268,8 @@ def create_bulk_bank_entry_and_reconcile(bank_transactions: list[str|int],
                                         cheque_no=cheque_no,
                                         user_remark=transactions_details.description,
                                         entries=entries,
-                                        voucher_type=("Credit Card Entry" if is_credit_card else "Bank Entry"))
+                                        voucher_type=("Credit Card Entry" if is_credit_card else "Bank Entry"),
+                                        company_code=company_code)
         
         output.append(final_transaction)
     
@@ -272,14 +278,15 @@ def create_bulk_bank_entry_and_reconcile(bank_transactions: list[str|int],
 
 
 @frappe.whitelist(methods=['POST'])
-def create_bank_entry_and_reconcile(bank_transaction_name: str | int, 
+def create_bank_entry_and_reconcile(bank_transaction_name: str | int,
                                     cheque_date: str | datetime.date,
                                     posting_date: str | datetime.date,
                                     cheque_no: str,
                                     entries: list,
                                     user_remark: str = None,
                                     voucher_type: str = "Bank Entry",
-                                    dimensions: dict = None):
+                                    dimensions: dict = None,
+                                    company_code: str | None = None):
     """
         Create a bank entry and reconcile it with the bank transaction
     """
@@ -304,6 +311,7 @@ def create_bank_entry_and_reconcile(bank_transaction_name: str | int,
         "posting_date": posting_date,
         "cheque_no": cheque_no,
         "user_remark": user_remark,
+        "company_code": company_code,
     })
     
     if not dimensions:

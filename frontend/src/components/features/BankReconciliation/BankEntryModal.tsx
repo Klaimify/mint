@@ -6,14 +6,14 @@ import { UnreconciledTransaction, useGetRuleForTransaction, useRefreshUnreconcil
 import { useFieldArray, useForm, useFormContext, useWatch } from "react-hook-form"
 import { JournalEntry } from "@/types/Accounts/JournalEntry"
 import { getCompanyCostCenter, getCompanyCurrency } from "@/lib/company"
-import { FrappeConfig, FrappeContext, useFrappePostCall } from "frappe-react-sdk"
+import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk"
 import { toast } from "sonner"
 import ErrorBanner from "@/components/ui/error-banner"
 import { Button } from "@/components/ui/button"
 import SelectedTransactionDetails from "./SelectedTransactionDetails"
 import { AccountFormField, CurrencyFormField, DataField, DateField, LinkFormField, PartyTypeFormField, SmallTextField } from "@/components/ui/form-elements"
 import { Form } from "@/components/ui/form"
-import { useCallback, useContext, useMemo, useRef, useState } from "react"
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ArrowDownRight, ArrowUpRight, Plus, Trash2 } from "lucide-react"
@@ -73,6 +73,7 @@ const BulkBankEntryForm = ({ selectedTransactions }: { selectedTransactions: Unr
 
     const form = useForm<{
         account: string
+        company_code: JournalEntry['company_code']
     }>({
         defaultValues: {
             account: ''
@@ -86,11 +87,23 @@ const BulkBankEntryForm = ({ selectedTransactions }: { selectedTransactions: Unr
 
     const setIsOpen = useSetAtom(bankRecRecordJournalEntryModalAtom)
 
-    const onSubmit = (data: { account: string }) => {
+    // Default Company Code from Mint Settings
+    const { data: defaultCompanyCodeData } = useFrappeGetCall<{ message: string }>(
+        'mint.apis.bank_reconciliation.get_default_company_code'
+    )
+
+    useEffect(() => {
+        if (defaultCompanyCodeData?.message) {
+            form.setValue('company_code', defaultCompanyCodeData.message)
+        }
+    }, [defaultCompanyCodeData, form])
+
+    const onSubmit = (data: { account: string, company_code: JournalEntry['company_code'] }) => {
 
         call({
             bank_transactions: selectedTransactions.map(transaction => transaction.name),
-            account: data.account
+            account: data.account,
+            company_code: data.company_code
         }).then(({ message }) => {
 
             addToActionLog({
@@ -137,6 +150,11 @@ const BulkBankEntryForm = ({ selectedTransactions }: { selectedTransactions: Unr
                         label={_('Account')}
                         isRequired
                     />
+                    <LinkFormField
+                        name='company_code'
+                        label={_("Company Code")}
+                        doctype="Company Code"
+                    />
                 </div>
 
                 <DialogFooter>
@@ -151,7 +169,7 @@ const BulkBankEntryForm = ({ selectedTransactions }: { selectedTransactions: Unr
 }
 
 
-interface BankEntryFormData extends Pick<JournalEntry, 'voucher_type' | 'cheque_date' | 'posting_date' | 'cheque_no' | 'user_remark'> {
+interface BankEntryFormData extends Pick<JournalEntry, 'voucher_type' | 'cheque_date' | 'posting_date' | 'cheque_no' | 'user_remark' | 'company_code'> {
     entries: JournalEntry['accounts']
 }
 
@@ -298,6 +316,17 @@ const BankEntryForm = ({ selectedTransaction }: { selectedTransaction: Unreconci
 
     const { call: createBankEntry, loading, error, isCompleted } = useFrappePostCall<{ message: { transaction: BankTransaction, journal_entry: JournalEntry } }>('mint.apis.bank_reconciliation.create_bank_entry_and_reconcile')
 
+    // Default Company Code from Mint Settings
+    const { data: defaultCompanyCodeData } = useFrappeGetCall<{ message: string }>(
+        'mint.apis.bank_reconciliation.get_default_company_code'
+    )
+
+    useEffect(() => {
+        if (defaultCompanyCodeData?.message) {
+            form.setValue('company_code', defaultCompanyCodeData.message)
+        }
+    }, [defaultCompanyCodeData, form])
+
     const setBankRecUnreconcileModalAtom = useSetAtom(bankRecUnreconcileModalAtom)
     const addToActionLog = useUpdateActionLog()
 
@@ -412,10 +441,17 @@ const BankEntryForm = ({ selectedTransaction }: { selectedTransaction: Unreconci
                                 }}
                             />
                         </div>
-                        <DataField name='cheque_no' label={_("Reference")} isRequired inputProps={{ autoFocus: false }}
-                            rules={{
-                                required: _("Reference is required"),
-                            }} />
+                        <div className='grid grid-cols-2 gap-4'>
+                            <DataField name='cheque_no' label={_("Reference")} isRequired inputProps={{ autoFocus: false }}
+                                rules={{
+                                    required: _("Reference is required"),
+                                }} />
+                            <LinkFormField
+                                name='company_code'
+                                label={_("Company Code")}
+                                doctype="Company Code"
+                            />
+                        </div>
                     </div>
                 </div>
 

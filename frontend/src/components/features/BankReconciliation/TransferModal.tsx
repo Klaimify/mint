@@ -15,11 +15,11 @@ import { cn } from '@/lib/utils'
 import { ArrowRight, Banknote, Landmark, BadgeCheck, Calendar, ArrowUpRight, ArrowDownRight, CheckIcon, CheckCircle } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { Form } from '@/components/ui/form'
-import { AccountFormField, DataField, DateField, SmallTextField } from '@/components/ui/form-elements'
+import { AccountFormField, DataField, DateField, LinkFormField, SmallTextField } from '@/components/ui/form-elements'
 import SelectedTransactionsTable from './SelectedTransactionsTable'
 import { useCurrentCompany } from '@/hooks/useCurrentCompany'
 import { formatDate } from '@/lib/date'
-import { useContext, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import { formatCurrency } from '@/lib/numbers'
 import { Label } from '@/components/ui/label'
 import { FileDropzone } from '@/components/ui/file-dropzone'
@@ -71,6 +71,7 @@ const BulkInternalTransferForm = ({ transactions }: { transactions: Unreconciled
 
     const form = useForm<{
         bank_account: string
+        company_code: PaymentEntry['company_code']
     }>()
 
     const setIsOpen = useSetAtom(bankRecTransferModalAtom)
@@ -80,11 +81,23 @@ const BulkInternalTransferForm = ({ transactions }: { transactions: Unreconciled
     const onReconcile = useRefreshUnreconciledTransactions()
     const addToActionLog = useUpdateActionLog()
 
-    const onSubmit = (data: { bank_account: string }) => {
+    // Default Company Code from Mint Settings
+    const { data: defaultCompanyCodeData } = useFrappeGetCall<{ message: string }>(
+        'mint.apis.bank_reconciliation.get_default_company_code'
+    )
+
+    useEffect(() => {
+        if (defaultCompanyCodeData?.message) {
+            form.setValue('company_code', defaultCompanyCodeData.message)
+        }
+    }, [defaultCompanyCodeData, form])
+
+    const onSubmit = (data: { bank_account: string, company_code: PaymentEntry['company_code'] }) => {
 
         createPaymentEntry({
             bank_transaction_names: transactions.map((transaction) => transaction.name),
-            bank_account: data.bank_account
+            bank_account: data.bank_account,
+            company_code: data.company_code
         }).then(({ message }) => {
             addToActionLog({
                 type: 'transfer',
@@ -132,6 +145,14 @@ const BulkInternalTransferForm = ({ transactions }: { transactions: Unreconciled
                 <SelectedTransactionsTable />
 
                 <BankOrCashPicker company={company} bankAccount={transactions[0].bank_account ?? ''} onAccountChange={onAccountChange} selectedAccount={selectedAccount} />
+
+                <div className='grid grid-cols-3 gap-4'>
+                    <LinkFormField
+                        name='company_code'
+                        label={_("Company Code")}
+                        doctype="Company Code"
+                    />
+                </div>
 
                 <DialogFooter>
                     <DialogClose asChild>
@@ -182,6 +203,17 @@ const InternalTransferForm = ({ selectedBankAccount, selectedTransaction }: { se
     const onReconcile = useRefreshUnreconciledTransactions()
 
     const { call: createPaymentEntry, loading, error, isCompleted } = useFrappePostCall<{ message: { transaction: BankTransaction, payment_entry: PaymentEntry } }>('mint.apis.bank_reconciliation.create_internal_transfer')
+
+    // Default Company Code from Mint Settings
+    const { data: defaultCompanyCodeData } = useFrappeGetCall<{ message: string }>(
+        'mint.apis.bank_reconciliation.get_default_company_code'
+    )
+
+    useEffect(() => {
+        if (defaultCompanyCodeData?.message) {
+            form.setValue('company_code', defaultCompanyCodeData.message)
+        }
+    }, [defaultCompanyCodeData, form])
 
     const setBankRecUnreconcileModalAtom = useSetAtom(bankRecUnreconcileModalAtom)
     const addToActionLog = useUpdateActionLog()
@@ -308,7 +340,14 @@ const InternalTransferForm = ({ selectedBankAccount, selectedTransaction }: { se
                                 inputProps={{ autoFocus: false }}
                             />
                         </div>
-                        <DataField name='reference_no' label={_("Reference")} isRequired inputProps={{ autoFocus: false }} />
+                        <div className='grid grid-cols-2 gap-4'>
+                            <DataField name='reference_no' label={_("Reference")} isRequired inputProps={{ autoFocus: false }} />
+                            <LinkFormField
+                                name='company_code'
+                                label={_("Company Code")}
+                                doctype="Company Code"
+                            />
+                        </div>
                     </div>
                 </div>
 
